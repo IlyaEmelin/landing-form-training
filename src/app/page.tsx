@@ -35,10 +35,37 @@ function validateForm(values: FormValues): FormErrors {
   return errors;
 }
 
+type ApiErrorResponse = {
+  message?: string;
+  errors?: Record<string, string>;
+};
+
+const DEFAULT_ERROR_MESSAGE = "Не удалось отправить заявку. Попробуйте ещё раз.";
+
+const NETWORK_ERROR_MESSAGE =
+  "Не удалось связаться с сервером. Проверьте соединение и попробуйте ещё раз.";
+
+// В API поле называется description, в форме — task: переводим сообщения обратно.
+function toFormErrors(apiErrors: Record<string, string> = {}): FormErrors {
+  const mapped: FormErrors = {};
+
+  for (const [field, message] of Object.entries(apiErrors)) {
+    if (field === "name" || field === "email") {
+      mapped[field] = message;
+    } else if (field === "description") {
+      mapped.task = message;
+    }
+  }
+
+  return mapped;
+}
+
 export default function Home() {
   const [values, setValues] = useState<FormValues>(EMPTY_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [serverError, setServerError] = useState("");
 
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -60,23 +87,59 @@ export default function Home() {
     });
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    // Форма никуда не отправляется: всё остаётся в браузере.
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    // Клиентская проверка пустых полей и формата email — как раньше.
     const nextErrors = validateForm(values);
     setErrors(nextErrors);
+    setIsSuccess(false);
+    setServerError("");
 
     const invalidFields = Object.keys(nextErrors) as Array<keyof FormValues>;
 
     if (invalidFields.length > 0) {
-      setIsSuccess(false);
       document.getElementById(invalidFields[0])?.focus();
       return;
     }
 
-    setIsSuccess(true);
-    setValues(EMPTY_FORM);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: values.name.trim(),
+          email: values.email.trim(),
+          description: values.task.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        setIsSuccess(true);
+        setValues(EMPTY_FORM);
+        return;
+      }
+
+      // Ошибка проверки на сервере: показываем сообщения, данные не очищаем.
+      const payload = (await response.json().catch(() => null)) as
+        | ApiErrorResponse
+        | null;
+      const apiErrors = toFormErrors(payload?.errors);
+      const firstInvalidField = Object.keys(apiErrors)[0];
+
+      setErrors(apiErrors);
+      setServerError(payload?.message ?? DEFAULT_ERROR_MESSAGE);
+
+      if (firstInvalidField) {
+        document.getElementById(firstInvalidField)?.focus();
+      }
+    } catch {
+      setServerError(NETWORK_ERROR_MESSAGE);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -181,8 +244,8 @@ export default function Home() {
             <div className={styles.faqItem}>
               <h3 className={styles.faqQuestion}>Что происходит с данными?</h3>
               <p className={styles.faqAnswer}>
-                На этой странице форма никуда не отправляется: данные остаются в
-                браузере до обновления страницы.
+                Форма отправляет данные в API-роут страницы: сервер проверяет их
+                по правилам и отвечает результатом проверки.
               </p>
             </div>
           </div>
@@ -264,14 +327,24 @@ export default function Home() {
               )}
             </div>
 
-            <button className={styles.submit} type="submit">
-              Отправить заявку
+            <button
+              className={styles.submit}
+              type="submit"
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
+            >
+              {isSubmitting ? "Отправляем…" : "Отправить заявку"}
             </button>
+
+            {serverError && (
+              <p className={styles.formError} role="alert">
+                {serverError}
+              </p>
+            )}
 
             {isSuccess && (
               <p className={styles.success} role="status">
-                Спасибо! Данные заполнены корректно — заявка принята локально,
-                без отправки на сервер.
+                Спасибо! Заявка отправлена — сервер принял данные без ошибок.
               </p>
             )}
           </form>
