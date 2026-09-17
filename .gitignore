@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# локальная база SQLite (data/app.db создаётся при первом запросе)
+/data/*.db
+/data/*.db-journal
+/data/*.db-wal
+/data/*.db-shm

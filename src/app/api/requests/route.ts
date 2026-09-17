@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { saveRequest } from "@/lib/db";
+
 // Схема проверки данных формы. Здесь же — понятные пользователю сообщения.
 const requestSchema = z.object({
   name: z
@@ -21,7 +23,7 @@ const requestSchema = z.object({
 });
 
 // POST /api/requests — приём данных формы.
-// Пока только проверяем данные и отвечаем успехом, без сохранения в базе.
+// Проверяем данные схемой и сохраняем заявку в локальную SQLite (data/app.db).
 export async function POST(request: Request) {
   let body: unknown;
 
@@ -68,8 +70,20 @@ export async function POST(request: Request) {
 
   const { name, email, description } = result.data;
 
-  return NextResponse.json({
-    message: "API-роут работает",
-    request: { name, email, description },
-  });
+  try {
+    // Сохраняем только те данные, которые прошли проверку схемой выше.
+    const saved = await saveRequest({ name, email, description });
+
+    return NextResponse.json({
+      message: "Заявка сохранена.",
+      request: saved,
+    });
+  } catch (error) {
+    console.error("Не удалось сохранить заявку в SQLite:", error);
+
+    return NextResponse.json(
+      { message: "Не удалось сохранить заявку. Попробуйте ещё раз позже." },
+      { status: 500 }
+    );
+  }
 }
